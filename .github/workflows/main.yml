@@ -1,0 +1,60 @@
+name: "Build"
+
+on:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  x86_64_windows:
+    name: "x86_64 Windows"
+    runs-on: [windows-2022]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          vsversion: 2022
+
+      - name: "Install CUDA"
+        shell: powershell
+        run: |
+          choco install cuda --version=12.0.1.52833 -y
+          "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.0\bin" >> $env:GITHUB_PATH
+
+      - name: "Build"
+        shell: powershell
+        run: |
+          nvcc src/main.cu -o x86_64_windows.exe -O3 -Xptxas -v -lbcrypt -gencode arch=compute_52,code=compute_52
+
+      - uses: ncipollo/release-action@v1
+        with:
+          artifacts: x86_64_windows.exe
+          token: ${{ secrets.GITHUB_TOKEN }}
+          allowUpdates: true
+          draft: true
+          replacesArtifacts: false
+
+
+  x86_64_linux:
+    name: "x86_64 Linux"
+    runs-on: [ubuntu-22.04]
+    container: nvidia/cuda:11.7.1-devel-ubuntu22.04
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: "Build"
+      run: |
+        nvcc src/main.cu -o x86_64_linux.bin -O3 -Xptxas -v -Xcompiler -static-libgcc -Xcompiler -static-libstdc++ -gencode arch=compute_52,code=compute_52
+
+    - uses: ncipollo/release-action@v1
+      with:
+        artifacts: x86_64_linux.bin
+        token: ${{ secrets.GITHUB_TOKEN }}
+        allowUpdates: true
+        draft: true
+        replacesArtifacts: false
