@@ -26,7 +26,7 @@ __global__ void __launch_bounds__(BLOCK_SIZE) gpu_address_init(CurvePoint* block
     bool b2 = __isGlobal(offsets);
     __builtin_assume(b2);
 
-    uint32_t thread_id = (uint32_t)threadIdx.x + (uint32_t)blockIdx.x * (uint32_t)BLOCK_SIZE;
+    uint64_t thread_id = (uint64_t)threadIdx.x + (uint64_t)blockIdx.x * (uint64_t)BLOCK_SIZE;
 
     _uint256 z[BLOCK_SIZE];
     z[0] = sub_256_mod_p(block_offsets[thread_id].x, thread_offsets[0].x);
@@ -60,8 +60,8 @@ __global__ void __launch_bounds__(BLOCK_SIZE, 2) gpu_address_work(int score_meth
     bool b = __isGlobal(offsets);
     __builtin_assume(b);
 
-    uint32_t thread_id = (uint32_t)threadIdx.x + (uint32_t)blockIdx.x * BLOCK_SIZE;
-    uint32_t key = (uint32_t)THREAD_WORK * thread_id;
+    uint64_t thread_id = (uint64_t)threadIdx.x + (uint64_t)blockIdx.x * (uint64_t)BLOCK_SIZE;
+    uint64_t key = (uint64_t)THREAD_WORK * thread_id;
 
     CurvePoint p = offsets[thread_id];
 

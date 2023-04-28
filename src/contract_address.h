@@ -24,8 +24,8 @@ __global__ void __launch_bounds__(BLOCK_SIZE, 2) gpu_contract_address_work(int s
     bool b = __isGlobal(offsets);
     __builtin_assume(b);
 
-    uint32_t thread_id = (uint32_t)threadIdx.x + (uint32_t)blockIdx.x * BLOCK_SIZE;
-    uint32_t key = (uint32_t)THREAD_WORK * thread_id;
+    uint64_t thread_id = (uint64_t)threadIdx.x + (uint64_t)blockIdx.x * (uint64_t)BLOCK_SIZE;
+    uint64_t key = (uint64_t)THREAD_WORK * thread_id;
 
     CurvePoint p = offsets[thread_id];
 

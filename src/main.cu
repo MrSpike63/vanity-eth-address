@@ -47,7 +47,7 @@
 
 __constant__ CurvePoint thread_offsets[BLOCK_SIZE];
 __constant__ CurvePoint addends[THREAD_WORK - 1];
-__device__ uint32_t device_memory[2 + OUTPUT_BUFFER_SIZE * 3];
+__device__ uint64_t device_memory[2 + OUTPUT_BUFFER_SIZE * 3];
 
 __device__ int count_zero_bytes(uint32_t x) {
     int n = 0;
@@ -89,16 +89,23 @@ __device__ int score_leading_zeros(Address a) {
     return n >> 3;
 }
 
+#ifdef __linux__
+    #define atomicMax_ul(a, b) atomicMax((unsigned long long*)(a), (unsigned long long)(b))
+    #define atomicAdd_ul(a, b) atomicAdd((unsigned long long*)(a), (unsigned long long)(b))
+#else
+    #define atomicMax_ul(a, b) atomicMax(a, b)
+    #define atomicAdd_ul(a, b) atomicAdd(a, b)
+#endif
 
-__device__ void handle_output(int score_method, Address a, uint32_t key, bool inv) {
+__device__ void handle_output(int score_method, Address a, uint64_t key, bool inv) {
     int score = 0;
     if (score_method == 0) { score = score_leading_zeros(a); }
     else if (score_method == 1) { score = score_zero_bytes(a); }
 
     if (score >= device_memory[1]) {
-        atomicMax(&device_memory[1], score);
+        atomicMax_ul(&device_memory[1], score);
         if (score >= device_memory[1]) {
-            uint32_t idx = atomicAdd(&device_memory[0], 1);
+            uint32_t idx = atomicAdd_ul(&device_memory[0], 1);
             if (idx < OUTPUT_BUFFER_SIZE) {
                 device_memory[2 + idx] = key;
                 device_memory[OUTPUT_BUFFER_SIZE + 2 + idx] = score;
@@ -108,17 +115,19 @@ __device__ void handle_output(int score_method, Address a, uint32_t key, bool in
     }
 }
 
-__device__ void handle_output2(int score_method, Address a, uint32_t key) {
+__device__ void handle_output2(int score_method, Address a, uint64_t key) {
     int score = 0;
     if (score_method == 0) { score = score_leading_zeros(a); }
     else if (score_method == 1) { score = score_zero_bytes(a); }
 
     if (score >= device_memory[1]) {
-        atomicMax(&device_memory[1], score);
+        atomicMax_ul(&device_memory[1], score);
         if (score >= device_memory[1]) {
-            uint32_t idx = atomicAdd(&device_memory[0], 1);
-            device_memory[2 + idx] = key;
-            device_memory[OUTPUT_BUFFER_SIZE + 2 + idx] = score;
+            uint32_t idx = atomicAdd_ul(&device_memory[0], 1);
+            if (idx < OUTPUT_BUFFER_SIZE) {
+                device_memory[2 + idx] = key;
+                device_memory[OUTPUT_BUFFER_SIZE + 2 + idx] = score;
+            }
         }
     }
 }
@@ -130,7 +139,7 @@ __device__ void handle_output2(int score_method, Address a, uint32_t key) {
 
 int global_max_score = 0;
 std::mutex global_max_score_mutex;
-uint32_t GRID_SIZE = (1U << 16);
+uint32_t GRID_SIZE = 1U << 15;
 
 struct Message {
     uint64_t time;
@@ -175,16 +184,16 @@ void host_thread(int device, int device_index, int score_method, int mode, Addre
     CurvePoint* thread_offsets_host = 0;
     bool* output_buffer3 = 0;
 
-    uint32_t* device_memory_host = 0;
-    uint32_t* max_score_host;
-    uint32_t* output_counter_host;
-    uint32_t* output_buffer_host;
-    uint32_t* output_buffer2_host;
-    uint32_t* output_buffer3_host;
+    uint64_t* device_memory_host = 0;
+    uint64_t* max_score_host;
+    uint64_t* output_counter_host;
+    uint64_t* output_buffer_host;
+    uint64_t* output_buffer2_host;
+    uint64_t* output_buffer3_host;
 
     gpu_assert(cudaSetDevice(device));
 
-    gpu_assert(cudaHostAlloc(&device_memory_host, (2 + OUTPUT_BUFFER_SIZE * 3) * sizeof(uint32_t), cudaHostAllocDefault))
+    gpu_assert(cudaHostAlloc(&device_memory_host, (2 + OUTPUT_BUFFER_SIZE * 3) * sizeof(uint64_t), cudaHostAllocDefault))
     output_counter_host = device_memory_host;
     max_score_host = device_memory_host + 1;
     output_buffer_host = max_score_host + 1;
@@ -193,7 +202,7 @@ void host_thread(int device, int device_index, int score_method, int mode, Addre
 
     output_counter_host[0] = 0;
     max_score_host[0] = 2;
-    gpu_assert(cudaMemcpyToSymbol(device_memory, device_memory_host, 2 * sizeof(uint32_t)));
+    gpu_assert(cudaMemcpyToSymbol(device_memory, device_memory_host, 2 * sizeof(uint64_t)));
     gpu_assert(cudaDeviceSynchronize())
 
 
@@ -213,7 +222,7 @@ void host_thread(int device, int device_index, int score_method, int mode, Addre
         max_key = cpu_sub_256(max_key, _uint256{0, 0, 0, 0, 0, 0, 0, THREAD_WORK});
         max_key = cpu_add_256(max_key, _uint256{0, 0, 0, 0, 0, 0, 0, 2});
     } else if (mode == 2) {
-        max_key = _uint256{0, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF};
+        max_key = _uint256{0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF};
     }
 
     _uint256 base_random_key{0, 0, 0, 0, 0, 0, 0, 0};
@@ -223,11 +232,9 @@ void host_thread(int device, int device_index, int score_method, int mode, Addre
         status = generate_secure_random_key(base_random_key, max_key, 255);
         random_key_increment = cpu_mul_256_mod_p(cpu_mul_256_mod_p(uint32_to_uint256(BLOCK_SIZE), uint32_to_uint256(GRID_SIZE)), uint32_to_uint256(THREAD_WORK));
     } else if (mode == 2) {
-        status = generate_secure_random_key(base_random_key, max_key, 224);
+        status = generate_secure_random_key(base_random_key, max_key, 256);
         random_key_increment = cpu_mul_256_mod_p(cpu_mul_256_mod_p(uint32_to_uint256(BLOCK_SIZE), uint32_to_uint256(GRID_SIZE)), uint32_to_uint256(THREAD_WORK));
-
-        base_random_key.a = base_random_key.b; base_random_key.b = base_random_key.c; base_random_key.c = base_random_key.d; base_random_key.d = base_random_key.e; base_random_key.e = base_random_key.f; base_random_key.f = base_random_key.g; base_random_key.g = base_random_key.h; base_random_key.h = 0;
-        max_key = _uint256{0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0};
+        base_random_key.h &= ~(THREAD_WORK - 1);
     }
 
     if (status) {
@@ -237,7 +244,6 @@ void host_thread(int device, int device_index, int score_method, int mode, Addre
         return;
     }
     _uint256 random_key = base_random_key;
-
 
     if (mode == 0 || mode == 1) {
         CurvePoint* addends_host = new CurvePoint[THREAD_WORK - 1];
@@ -305,7 +311,7 @@ void host_thread(int device, int device_index, int score_method, int mode, Addre
 
             gpu_address_init<<<GRID_SIZE/BLOCK_SIZE, BLOCK_SIZE, 0, streams[0]>>>(block_offsets, offsets);
             if (!first_iteration) {
-                gpu_assert(cudaMemcpyFromSymbolAsync(device_memory_host, device_memory, (2 + OUTPUT_BUFFER_SIZE * 3) * sizeof(uint32_t), 0, cudaMemcpyDeviceToHost, streams[1]))
+                gpu_assert(cudaMemcpyFromSymbolAsync(device_memory_host, device_memory, (2 + OUTPUT_BUFFER_SIZE * 3) * sizeof(uint64_t), 0, cudaMemcpyDeviceToHost, streams[1]))
                 gpu_assert(cudaStreamSynchronize(streams[1]))
             }
             if (!first_iteration) {
@@ -336,8 +342,8 @@ void host_thread(int device, int device_index, int score_method, int mode, Addre
                         for (int i = 0; i < output_counter_host[0]; i++) {
                             if (output_buffer2_host[i] < max_score_host[0]) { continue; }
 
-                            uint32_t k_offset = output_buffer_host[i];
-                            _uint256 k = cpu_add_256(previous_random_key, cpu_add_256(_uint256{0, 0, 0, 0, 0, 0, 0, THREAD_WORK}, _uint256{0, 0, 0, 0, 0, 0, 0, k_offset}));
+                            uint64_t k_offset = output_buffer_host[i];
+                            _uint256 k = cpu_add_256(previous_random_key, cpu_add_256(_uint256{0, 0, 0, 0, 0, 0, 0, THREAD_WORK}, _uint256{0, 0, 0, 0, 0, 0, (uint32_t)(k_offset >> 32), (uint32_t)(k_offset & 0xFFFFFFFF)}));
 
                             if (output_buffer3_host[i]) {
                                 k = cpu_sub_256(N, k);
@@ -365,7 +371,7 @@ void host_thread(int device, int device_index, int score_method, int mode, Addre
 
             if (!first_iteration) {
                 output_counter_host[0] = 0;
-                gpu_assert(cudaMemcpyToSymbolAsync(device_memory, device_memory_host, sizeof(uint32_t), 0, cudaMemcpyHostToDevice, streams[1]));
+                gpu_assert(cudaMemcpyToSymbolAsync(device_memory, device_memory_host, sizeof(uint64_t), 0, cudaMemcpyHostToDevice, streams[1]));
                 gpu_assert(cudaStreamSynchronize(streams[1]))
             }
             gpu_assert(cudaStreamSynchronize(streams[0]))
@@ -379,7 +385,7 @@ void host_thread(int device, int device_index, int score_method, int mode, Addre
             gpu_contract2_address_work<<<GRID_SIZE, BLOCK_SIZE>>>(score_method, origin_address, random_key, bytecode);
 
             gpu_assert(cudaDeviceSynchronize())
-            gpu_assert(cudaMemcpyFromSymbol(device_memory_host, device_memory, (2 + OUTPUT_BUFFER_SIZE * 3) * sizeof(uint32_t)))
+            gpu_assert(cudaMemcpyFromSymbol(device_memory_host, device_memory, (2 + OUTPUT_BUFFER_SIZE * 3) * sizeof(uint64_t)))
 
             uint64_t end_time = milliseconds();
             double elapsed = (end_time - start_time) / 1000.0;
@@ -411,8 +417,8 @@ void host_thread(int device, int device_index, int score_method, int mode, Addre
                     for (int i = 0; i < output_counter_host[0]; i++) {
                         if (output_buffer2_host[i] < max_score_host[0]) { continue; }
 
-                        uint32_t k_offset = output_buffer_host[i];
-                        _uint256 k = cpu_add_256(random_key, _uint256{0, 0, 0, 0, 0, 0, 0, k_offset});
+                        uint64_t k_offset = output_buffer_host[i];
+                        _uint256 k = cpu_add_256(random_key, _uint256{0, 0, 0, 0, 0, 0, (uint32_t)(k_offset >> 32), (uint32_t)(k_offset & 0xFFFFFFFF)});
             
                         int idx = valid_results++;
                         results[idx] = k;
@@ -434,12 +440,9 @@ void host_thread(int device, int device_index, int score_method, int mode, Addre
             }
 
             random_key = cpu_add_256(random_key, random_key_increment);
-            if (gte_256(random_key, max_key)) {
-                random_key = cpu_sub_256(random_key, max_key);
-            }
 
             output_counter_host[0] = 0;
-            gpu_assert(cudaMemcpyToSymbol(device_memory, device_memory_host, sizeof(uint32_t)));
+            gpu_assert(cudaMemcpyToSymbol(device_memory, device_memory_host, sizeof(uint64_t)));
         }
     }
 }
