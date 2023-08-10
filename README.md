@@ -21,6 +21,14 @@ Examples:
     ./vanity-eth-address --leading-zeros --contract2 --bytecode bytecode.txt --address 0x0000000000000000000000000000000000000000 --device 0
 ```
 
+## Benchmarks
+| GPU  | Normal addresses | Contract addresses | CREATE2 addresses |
+| ---- | ---------------- | ------------------ | ----------------- |
+| 4090 | 3800M/s          | 2050M/s            | 4800M/s           |
+| 3090 | 1600M/s          | 850M/s             | 2300M/s           |
+| 3070 | 1000M/s          | 550M/s             | 1300M/s           |
+
+Note that configuration and environment can affect performance.
 
 ## Requirements
 * A NVIDIA CUDA-enabled GPU with a compute capability of at least 5.2 (Roughly anything above a GeForce GTX 950. For a full list [see here](https://developer.nvidia.com/cuda-gpus)).
