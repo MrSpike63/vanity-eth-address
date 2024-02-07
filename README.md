@@ -5,16 +5,18 @@ Vanity Eth Address is a tool to generate Ethereum addresses that match certain c
 ```
 ./vanity-eth-addresss [PARAMETERS]
     Scoring methods
-      (-lz) --leading-zeros             Count zero bytes at the start of the address
-       (-z) --zeros                     Count zero bytes anywhere in the address
+      (-lz) --leading-zeros               Count zero bytes at the start of the address
+       (-z) --zeros                       Count zero bytes anywhere in the address
     Modes (normal addresses by default)
-       (-c) --contract                  Search for addresses and score the contract address generated using nonce=0
-      (-c2) --contract2                 Search for contract addresses using the CREATE2 opcode
+       (-c) --contract                    Search for addresses and score the contract address generated using nonce=0
+      (-c2) --contract2                   Search for contract addresses using the CREATE2 opcode
+      (-c3) --contract3                   Search for contract addresses using a CREATE3 proxy deployer
     Other:
-       (-d) --device <device_number>    Use device <device_number> (Add one for each device for multi-gpu)
-       (-b) --bytecode <filename>       File containing contract bytecode (only needed when using --contract2)
-       (-a) --address <address>         Sender contract address (only needed when using --contract2)
-       (-w) --work-scale <num>          Defaults to 15. Scales the work done in each kernel. If your GPU finishes kernels within a few seconds, you may benefit from increasing this number.
+       (-d) --device <device_number>      Use device <device_number> (Add one for each device for multi-gpu)
+       (-b) --bytecode <filename>         File containing contract bytecode (only needed when using --contract2 or --contract3)
+       (-a) --address <address>           Sender contract address (only needed when using --contract2 or --contract3)
+      (-ad) --deployer-address <address>  Deployer contract address (only needed when using --contract3)
+       (-w) --work-scale <num>            Defaults to 15. Scales the work done in each kernel. If your GPU finishes kernels within a few seconds, you may benefit from increasing this number.
 
 Examples:
     ./vanity-eth-address --zeros --device 0 --device 2 --work-scale 17

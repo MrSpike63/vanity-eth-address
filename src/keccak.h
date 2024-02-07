@@ -152,7 +152,7 @@ __device__ Address calculate_address(_uint256 x, _uint256 y) {
 }
 
 
-__device__ Address calculate_contract_address(Address a) {
+__device__ Address calculate_contract_address(Address a, uint8_t nonce = 0x80) {
     uint64_t block[25];
     for (int i = 0; i < 25; i++) {
         block[i] = 0;
@@ -160,7 +160,7 @@ __device__ Address calculate_contract_address(Address a) {
 
     block[0] = swap_endianness((0xD694ULL << 48) | ((uint64_t)a.a << 16) | (a.b >> 16));
     block[5] = swap_endianness(((uint64_t)a.b << 48) | ((uint64_t)a.c << 16) | (a.d >> 16));
-    block[10] = swap_endianness(((uint64_t)a.d << 48) | ((uint64_t)a.e << 16) | (0x80ULL << 8) | 1);
+    block[10] = swap_endianness(((uint64_t)a.d << 48) | ((uint64_t)a.e << 16) | ((uint64_t)nonce << 8) | 1);
 
     block[8] = 0x8000000000000000;
 
@@ -201,4 +201,30 @@ __device__ Address calculate_contract_address2(Address a, _uint256 salt, _uint25
     uint64_t d = swap_endianness(block[15]);
 
     return {(uint32_t)(b & 0xFFFFFFFF), (uint32_t)(c >> 32), (uint32_t)(c & 0xFFFFFFFF), (uint32_t)(d >> 32), (uint32_t)(d & 0xFFFFFFFF)};
+}
+
+__device__ _uint256 calculate_create3_salt(Address origin, _uint256 salt) {
+    uint64_t block[25];
+    for (int i = 0; i < 25; i++) {
+        block[i] = 0;
+    }
+
+    block[0] = swap_endianness(((uint64_t)origin.a << 32) | (uint64_t)origin.b);
+    block[5] = swap_endianness(((uint64_t)origin.c << 32) | (uint64_t)origin.d);
+    block[10] = swap_endianness(((uint64_t)origin.e << 32) | (uint64_t)salt.a);
+    block[15] = swap_endianness(((uint64_t)salt.b << 32) | (uint64_t)salt.c);
+    block[20] = swap_endianness(((uint64_t)salt.d << 32) | (uint64_t)salt.e);
+    block[1] = swap_endianness(((uint64_t)salt.f << 32) | (uint64_t)salt.g);
+    block[6] = swap_endianness(((uint64_t)salt.h << 32) | (1ULL << 24));
+
+    block[8] = 0x8000000000000000;
+
+    block_permute(block);
+
+    uint64_t a = swap_endianness(block[0]);
+    uint64_t b = swap_endianness(block[5]);
+    uint64_t c = swap_endianness(block[10]);
+    uint64_t d = swap_endianness(block[15]);
+
+    return {(uint32_t)(a >> 32), (uint32_t)(a & 0xFFFFFFFF), (uint32_t)(b >> 32), (uint32_t)(b & 0xFFFFFFFF), (uint32_t)(c >> 32), (uint32_t)(c & 0xFFFFFFFF), (uint32_t)(d >> 32), (uint32_t)(d & 0xFFFFFFFF)};
 }
